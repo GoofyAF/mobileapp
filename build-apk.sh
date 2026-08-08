@@ -11,8 +11,7 @@ nix-shell shell.nix --run '
   ANDROID_HOME_DIR="$ANDROID_HOME"
   cd "'"$SCRIPT_DIR"'"
   ./gradlew :androidApp:assembleRelease --no-daemon \
-    -Pandroid.aapt2FromMavenOverride="$ANDROID_HOME_DIR/build-tools/36.0.0/aapt2" \
-    -x :androidApp:uploadCrashlyticsMappingFileRelease
+    -Pandroid.aapt2FromMavenOverride="$ANDROID_HOME_DIR/build-tools/36.0.0/aapt2"
 '
 
 echo ""

@@ -7,6 +7,7 @@ plugins {
 android {
     namespace = "com.cactus.nativelib"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
+    ndkVersion = "29.0.14206865"
 
     defaultConfig {
         minSdk = libs.versions.android.minSdk.get().toInt()
@@ -17,6 +18,7 @@ android {
     externalNativeBuild {
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.31.6"
         }
     }
     compileOptions {
