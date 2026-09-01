@@ -28,10 +28,14 @@ jobs:
           java-version: 17
 
       - name: Merge upstream
+        id: merge
         run: |
+          git config user.email "actions@github.com"
+          git config user.name "GitHub Actions"
           git remote add upstream https://github.com/coredevices/mobileapp.git
           git fetch upstream
           git merge upstream/master --no-edit
+          echo "merge_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/cache@v5
         with:
@@ -67,7 +71,7 @@ jobs:
 
             - Trigger: `${{ github.event_name }}`
             - Run: ${{ github.run_number }}
-            - Commit: ${{ github.sha }}
+            - Commit: ${{ steps.merge.outputs.merge_sha }}
           files: ${{ steps.apk.outputs.path }}
           make_latest: true
           fail_on_unmatched_files: true
