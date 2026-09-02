@@ -34,8 +34,12 @@ jobs:
           git config user.name "GitHub Actions"
           git remote add upstream https://github.com/coredevices/mobileapp.git
           git fetch upstream
+          before=$(git rev-parse HEAD)
           git merge upstream/master --no-edit
           echo "merge_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          if [ "$before" != "$(git rev-parse HEAD)" ]; then
+            git push origin master
+          fi
 
       - uses: actions/cache@v5
         with:
