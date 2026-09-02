@@ -40,7 +40,11 @@ jobs:
             git checkout HEAD^ -- .github/workflows
             git add -A .github/workflows
             git commit --amend --no-edit --no-verify || true
-            git push origin master
+            git push origin master || {
+              git fetch origin
+              git merge --no-edit origin/master
+              git push origin master
+            }
           fi
           echo "merge_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
