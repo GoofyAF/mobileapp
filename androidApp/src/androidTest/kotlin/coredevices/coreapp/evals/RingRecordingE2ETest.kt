@@ -12,6 +12,7 @@ import coredevices.indexai.database.dao.RecordingEntryDao
 import coredevices.util.CommonBuildKonfig as CBK
 import coredevices.ring.agent.AgentFactory
 import coredevices.ring.agent.IndexAgentNenya
+import coredevices.ring.agent.DefaultCaptureType
 import coredevices.ring.agent.LlmMode
 import coredevices.ring.agent.SearchAgentNenya
 import coredevices.ring.agent.BuiltinServletRepository
@@ -290,10 +291,13 @@ val EVAL_CASES = listOf(
         groundTruth = "Remember to tell Danny about the idea to call a liquor brand La Curious.",
         expectedTranscriptionLocal = "Remember to tell Danny about the idea to call a liquor brand Lucurious?",
         expectedTranscriptionRemote = "Remember to tell Danny about the idea to call a liquor brand \"La Curious.\"",
-        expectedToolName = "builtin_note.create_note",
+        expectedToolName = "builtin_reminder.create_reminder",
         expectedToolArgs = mapOf(),
         verifyEffect = { result ->
-            assertTrue("Expected ListItemCreation, got: $result", result is SemanticResult.ListItemCreation)
+            assertTrue("Expected TaskCreation, got: $result", result is SemanticResult.TaskCreation)
+            val task = result as SemanticResult.TaskCreation
+            assertTrue("Expected Danny task, got: ${task.title}", task.title.contains("Danny"))
+            assertEquals("No deadline expected", null, task.deadline)
         }
     ),
 )
@@ -657,9 +661,15 @@ class RingRecordingE2ETest {
                     recordingId: String,
                     transcription: String?,
                     recordedAt: Instant,
-                    trigger: coredevices.ring.external.indexwebhook.IndexWebhookRecordingTrigger?,
+                    gesture: coredevices.ring.service.button.RingGesture,
                 ) {}
-                override val isEnabled: StateFlow<Boolean> = MutableStateFlow(false)
+                override suspend fun sendTestEvent(
+                    gesture: coredevices.ring.service.button.RingGesture,
+                    url: String,
+                    headers: Map<String, String>,
+                ) = coredevices.ring.external.indexwebhook.IndexWebhookRunResult(
+                    ok = true, status = "200 OK", detail = "test event", byteSize = 0, durationMs = 0,
+                )
             }
         } bind IndexWebhookApi::class
         single<com.russhwolf.settings.Settings> {
@@ -720,4 +730,7 @@ private class E2EPreferences : Preferences {
     override fun setLastWipedRing(id: String?) {}
     override fun setLastBackupCount(count: Int?) {}
     override fun setPlatformSttDefaulted() {}
+    override val defaultCaptureType: StateFlow<DefaultCaptureType> =
+        MutableStateFlow(DefaultCaptureType.Note)
+    override fun setDefaultCaptureType(type: DefaultCaptureType) {}
 }

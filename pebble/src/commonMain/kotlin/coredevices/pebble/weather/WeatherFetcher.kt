@@ -27,6 +27,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlin.time.Clock
@@ -56,16 +58,23 @@ class WeatherFetcher(
         private const val SETTINGS_KEY_HAS_DONE_ONE_SYNC = "has_done_one_weather_sync"
     }
 
+    private val mutex = Mutex()
+
     suspend fun init() {
+        fetchIfNotFetchedYet()
+    }
+
+    suspend fun fetchIfNotFetchedYet() {
         // One-off sync on first launch after this ships
-        if (settings.getBoolean(SETTINGS_KEY_HAS_DONE_ONE_SYNC, false)) {
-            return
+        mutex.withLock {
+            if (settings.getBoolean(SETTINGS_KEY_HAS_DONE_ONE_SYNC, false)) {
+                return
+            }
         }
-        settings.putBoolean(SETTINGS_KEY_HAS_DONE_ONE_SYNC, true)
         fetchWeather(GlobalScope)
     }
 
-    suspend fun fetchWeather(scope: CoroutineScope) {
+    suspend fun fetchWeather(scope: CoroutineScope) = mutex.withLock {
         val weatherEnabled = coreConfigFlow.value.fetchWeather
         val pinsEnabled = coreConfigFlow.value.weatherPinsV2
         val units = coreConfigFlow.value.resolvedWeatherUnits
@@ -101,6 +110,9 @@ class WeatherFetcher(
             createTimelinePins(fetchedData)
         }
         libPebble.updateWeatherData(weatherAppData)
+        if (weatherAppData.filterIsInstance<WeatherLocationData.WeatherLocationDataPopulated>().isNotEmpty()) {
+            settings.putBoolean(SETTINGS_KEY_HAS_DONE_ONE_SYNC, true)
+        }
     }
 
     private suspend fun getLocationsAndUpdateCurrentLocation(): List<WeatherLocationEntity> {
@@ -183,13 +195,10 @@ class WeatherFetcher(
                 precipSumMm = forecast.precipMm?.roundToInt(),
             )
         }
-        val hourly = weather.fcsthourly?.data?.hours.orEmpty().map { hour ->
-            WeatherHourlyForecast(
-                weatherType = hour.iconCode.toWeatherType(),
-                temp = (hour.temp ?: 0).coerceIn(Byte.MIN_VALUE.toInt(), Byte.MAX_VALUE.toInt()).toByte(),
-                uvIndexX10 = hour.uvIndex?.let { (it * 10).roundToInt().toShort() },
-            )
-        }
+        // The series starts at the location's local midnight, so hours 24+ are tomorrow.
+        val hours = weather.fcsthourly?.data?.hours.orEmpty()
+        val hourly = hours.take(HOURS_PER_DAY).map { it.toHourlyForecast() }
+        val tomorrowHourly = hours.drop(HOURS_PER_DAY).take(HOURS_PER_DAY).map { it.toHourlyForecast() }
         return WeatherLocationData.WeatherLocationDataPopulated(
             key = location.key,
             currentTemp = currentTemps.temp.toShort(),
@@ -213,6 +222,7 @@ class WeatherFetcher(
             todayWindDirection = current.windDirection,
             todayHourly = hourly,
             locationUtcOffsetMin = today?.sunriseRaw?.utcOffsetMinutes(),
+            tomorrowHourly = tomorrowHourly,
         )
     }
 
@@ -335,6 +345,13 @@ private val TomorrowNightUuid = Uuid.parse("2f363ad4-bc5d-455a-a445-4e00ec07417e
 private val DayAfterTomorrowDayUuid = Uuid.parse("3233984e-2dc9-4469-8a9a-46f91d81b7fc")
 private val DayAfterTomorrowNightUuid = Uuid.parse("fd97c081-9970-436b-aa87-9c55232bce35")
 private const val TEMP_NO_VALUE = Short.MAX_VALUE
+private const val HOURS_PER_DAY = 24
+
+internal fun HourlyForecast.toHourlyForecast() = WeatherHourlyForecast(
+    weatherType = iconCode.toWeatherType(),
+    temp = (temp ?: 0).coerceIn(Byte.MIN_VALUE.toInt(), Byte.MAX_VALUE.toInt()).toByte(),
+    uvIndexX10 = uvIndex?.let { (it * 10).roundToInt().toShort() },
+)
 
 //object Iso8601InstantSerializer : KSerializer<Instant> {
 //    override val descriptor = PrimitiveSerialDescriptor("Instant", PrimitiveKind.STRING)

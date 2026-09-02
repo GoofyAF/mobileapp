@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DoNotDisturb
+import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Mic
@@ -221,10 +222,11 @@ enum class Section(val title: String, val icon: ImageVector) {
     Timeline("Timeline", Icons.Default.Timeline), // watch only
     QuietTime("Quiet Time", Icons.Default.DoNotDisturb),
     Connectivity("Connectivity", Icons.Default.Wifi),
-    Music("Music", Icons.Default.MusicNote), // watch only
+    Music("Music", Icons.Default.MusicNote),
     Other("Other", Icons.Default.MoreHoriz), // watch only
     Diagnostics("Diagnostics", Icons.Default.Timeline),
     Debug("Debug", Icons.Default.BugReport),
+    BundledPlugins("Bundled Plugins", Icons.Default.Extension), // TODO to be removed when we have a better solution
 }
 
 fun Section.navigatesDirectlyTo(): NavBarRoute? = when (this) {
@@ -613,7 +615,7 @@ fun rememberSettingsItemsState(navBarNav: NavBarNav?, snackbarDisplay: SnackbarD
                     title = "Configure Appstore Sources",
                     topLevelType = TopLevelType.Phone,
                     section = Section.Apps,
-                    action = { nav.navigateTo(PebbleNavBarRoutes.AppstoreSettingsRoute) },
+                    action = { nav.navigateTo(PebbleNavBarRoutes.AppstoreSettingsRoute()) },
                 ) },
                 basicSettingsDropdownItem(
                     title = "App Theme",
@@ -811,6 +813,23 @@ fun rememberSettingsItemsState(navBarNav: NavBarNav?, snackbarDisplay: SnackbarD
                         )
                     },
                     show = { pebbleFeatures.supportsVibePatterns() },
+                ),
+                basicSettingsToggleItem(
+                    title = "Send notification images",
+                    description = "Show photos sent in messages on the watch. Can also be turned off per app on the Notifications tab.",
+                    topLevelType = TopLevelType.Phone,
+                    section = Section.Notifications,
+                    checked = libPebbleConfig.notificationConfig.sendNotificationImages,
+                    onCheckChanged = {
+                        libPebble.updateConfig(
+                            libPebbleConfig.copy(
+                                notificationConfig = libPebbleConfig.notificationConfig.copy(
+                                    sendNotificationImages = it
+                                )
+                            )
+                        )
+                    },
+                    show = { pebbleFeatures.supportsNotificationImages() },
                 ),
                 basicSettingsToggleItem(
                     title = "Send local-only notifications to watch",
@@ -1883,6 +1902,42 @@ fun rememberSettingsItemsState(navBarNav: NavBarNav?, snackbarDisplay: SnackbarD
                     show = { loggedIn != null },
                     isDebugSetting = true,
                 ),
+                basicSettingsToggleItem(
+                    title = "Use experimental plugins",
+                    description = "Enable the new plugins API. This is an experimental feature under development - not recommended unless you know what you are doing (API is unstable, and can expose private data until a permission system is implemented)",
+                    topLevelType = TopLevelType.Phone,
+                    section = Section.Debug,
+                    checked = libPebbleConfig.watchConfig.enablePlugins,
+                    onCheckChanged = {
+                        libPebble.updateConfig(
+                            libPebbleConfig.copy(
+                                watchConfig = libPebbleConfig.watchConfig.copy(
+                                    enablePlugins = it
+                                )
+                            )
+                        )
+                    },
+                    isDebugSetting = true,
+                ),
+                *libPebble.configurablePlugins().map { plugin ->
+                    basicSettingsActionItem(
+                        title = "Configure ${plugin.name}",
+                        description = "Settings for the ${plugin.name} plugin",
+                        topLevelType = TopLevelType.Phone,
+                        section = Section.BundledPlugins,
+                        action = {
+                            WatchappSettingsUrlCache.put(plugin.uuid, plugin.configPageUrl)
+                            navBarNav?.navigateTo(
+                                PebbleRoutes.WatchappSettingsRoute(
+                                    uuid = plugin.uuid,
+                                    title = plugin.name,
+                                )
+                            )
+                        },
+                        show = { libPebbleConfig.watchConfig.enablePlugins },
+                        isDebugSetting = true,
+                    )
+                }.toTypedArray(),
                 basicSettingsActionItem(
                     title = "Sign Out - Pebble Account",
                     description = "Sign out of your Pebble account ($coreUser)",
@@ -1992,6 +2047,23 @@ fun rememberSettingsItemsState(navBarNav: NavBarNav?, snackbarDisplay: SnackbarD
                         coreConfigHolder.update(coreConfig.copy(showWatchConnectionDebugInfo = it))
                     },
                     isDebugSetting = true,
+                ),
+                basicSettingsToggleItem(
+                    title = "Seek instead of Skip for Podcasts",
+                    description = "Icons will only update on updated PebbleOS version",
+                    topLevelType = TopLevelType.Phone,
+                    section = Section.Music,
+                    checked = libPebbleConfig.watchConfig.musicSeekWhenAvailable,
+                    onCheckChanged = {
+                        libPebble.updateConfig(
+                            libPebbleConfig.copy(
+                                watchConfig = libPebbleConfig.watchConfig.copy(
+                                    musicSeekWhenAvailable = it
+                                )
+                            )
+                        )
+                    },
+                    show = { pebbleFeatures.supportsMusic() },
                 ),
             ) + watchPrefs
         }

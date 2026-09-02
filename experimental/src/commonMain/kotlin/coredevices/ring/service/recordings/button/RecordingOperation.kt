@@ -4,6 +4,7 @@ import co.touchlab.kermit.Logger
 import com.mmk.kmpnotifier.notification.NotifierManager
 import coredevices.indexai.agent.Agent
 import coredevices.indexai.data.entity.RecordingEntryEntity
+import coredevices.indexai.data.entity.RecordingEntryErrorType
 import coredevices.indexai.data.entity.RecordingEntryStatus
 import coredevices.indexai.database.dao.RecordingEntryDao
 import coredevices.mcp.SessionContext
@@ -42,6 +43,12 @@ interface RecordingOperation {
     suspend fun run(handle: RecordingProcessingQueue.TaskHandle? = null)
 }
 
+/** An operation whose transcription is available before agent processing finishes. */
+interface TranscribingRecordingOperation : RecordingOperation {
+    /** Invoked with the persisted transcript, before agent processing starts. */
+    var onTranscriptionPersisted: (suspend (transcription: String) -> Unit)?
+}
+
 open class DefaultRecordingOperation(
     private val mcpSandboxRepository: McpSandboxRepository,
     private val mcpSessionFactory: McpSessionFactory,
@@ -53,10 +60,12 @@ open class DefaultRecordingOperation(
     private val forcedTool: (suspend (messageText: String, assistantMessage: String?, sessionContext: SessionContext) -> ToolCallResult)?,
     /** Sandbox group whose MCP servers are exposed to the agent; null = default group. */
     private val sandboxGroupId: Long? = null,
-) : RecordingOperation, KoinComponent {
+) : TranscribingRecordingOperation, KoinComponent {
     companion object {
         private val logger = Logger.withTag("DefaultRecordingOperation")
     }
+
+    override var onTranscriptionPersisted: (suspend (transcription: String) -> Unit)? = null
 
     private val recordingStorage: RecordingStorage by inject()
     private val recordingEntryDao: RecordingEntryDao by inject()
@@ -194,7 +203,8 @@ open class DefaultRecordingOperation(
                 recordingEntryDao.updateRecordingEntryStatus(
                     entryId,
                     status = RecordingEntryStatus.transcription_error,
-                    error = "Network error during transcription: ${e.message}"
+                    error = "Network error during transcription: ${e.message}",
+                    errorType = e.errorType
                 )
                 recordingEntryDao.updateRecordingEntryTranscription(
                     entryId,
@@ -228,7 +238,9 @@ open class DefaultRecordingOperation(
                 recordingEntryDao.updateRecordingEntryStatus(
                     entryId,
                     status = RecordingEntryStatus.transcription_error,
-                    error = e.message
+                    error = e.message,
+                    errorType = (e as? TranscriptionException)?.errorType
+                        ?: RecordingEntryErrorType.transcription_failed
                 )
                 if (e is TranscriptionException) {
                     recordingEntryDao.updateRecordingEntryTranscription(
@@ -246,6 +258,7 @@ open class DefaultRecordingOperation(
                 transcription.text,
                 transcription.modelUsed
             )
+            onTranscriptionPersisted?.invoke(transcription.text)
 
             try {
                 trace.markEvent("mcp_session_open_start", TraceEventData.RecordingEntryInfo(
@@ -281,7 +294,8 @@ open class DefaultRecordingOperation(
                 recordingEntryDao.updateRecordingEntryStatus(
                     entryId,
                     status = RecordingEntryStatus.agent_error,
-                    error = e.message
+                    error = e.message,
+                    errorType = RecordingEntryErrorType.agent_failed
                 )
                 throw e
             } finally {

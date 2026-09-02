@@ -1,7 +1,10 @@
 package coredevices.libindex.device
 
 import org.koin.core.component.KoinComponent
-import org.koin.core.component.inject
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
+
+val DEFAULT_RSSI_CONNECTION_TIMEOUT = 30.seconds
 
 sealed interface IndexDevice {
     val identifier: IndexIdentifier
@@ -36,8 +39,15 @@ class IndexIdentifier(
     }
 }
 
+enum class IndexImage {
+    Primary, // Normal firmware
+    Failsafe, // Recovery
+    ProductionTest // Factory QA - overwritten by normal fw
+}
+
 interface KnownIndexDevice: IndexDevice {
     fun remove()
+    suspend fun measureRSSI(connectionTimeout: Duration = DEFAULT_RSSI_CONNECTION_TIMEOUT): RSSIMeasurement
 }
 
 sealed interface IndexPairingState {
@@ -46,11 +56,35 @@ sealed interface IndexPairingState {
     data class Error(val error: IndexPairingResult) : IndexPairingState
 }
 
+/**
+ * A ring seen by a scan.
+ * See [PairableIndexDevice], [RepairableIndexDevice], [InterviewedIndexDevice]
+ */
 interface DiscoveredIndexDevice: IndexDevice {
     val rssi: Int
+    val currentImage: IndexImage
+}
+
+/**
+ * Pairable device, e.g. a device on [IndexImage.Primary] firmware.
+ */
+interface PairableIndexDevice: DiscoveredIndexDevice {
     val pairingState: IndexPairingState
-    val isFailsafe: Boolean
     suspend fun pair(): IndexPairingResult
+}
+
+/**
+ * Repairable device, usually a device on [IndexImage.ProductionTest] as [forceFailsafe] will
+ * restore it.
+ */
+interface RepairableIndexDevice: DiscoveredIndexDevice {
+    /**
+     * Attempts to force failsafe (invalidate primary image) to repair a device in e.g. production
+     * test firmware.
+     *
+     * Requires a working bond when on [IndexImage.Primary].
+     */
+    suspend fun forceFailsafe()
 }
 
 interface InterviewedIndexDevice: KnownIndexDevice {
@@ -59,3 +93,5 @@ interface InterviewedIndexDevice: KnownIndexDevice {
     val mac: String
     val updating: Boolean
 }
+
+val DiscoveredIndexDevice.isFailsafe: Boolean get() = currentImage == IndexImage.Failsafe

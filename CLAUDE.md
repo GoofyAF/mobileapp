@@ -24,6 +24,9 @@ Kotlin Multiplatform / Compose Multiplatform app targeting Android and iOS.
 - `:mcp`, `:index-ai`, `:libindex` — AI/MCP-related modules.
 - `:cactus`, `:resampler`, `:krisp-stubs` — audio/ML support modules. `:cactus-native` is a plain Android library holding cactus' CMake build and prebuilt `.so` (the KMP Android library plugin has no NDK support).
 - `:blobannotations`, `:blobdbgen` — KSP annotations + code generator for Pebble blobdb.
+- `test-apps/` — demo watchapps for the plugin API (`plugin-test`, `weather-face`). Built by
+  `./gradlew buildTestAppPbws` when the Pebble SDK is on `PATH`, and bundled into the host apps'
+  resources; without the SDK the build carries on and the apps simply aren't bundled.
 
 iOS app project: `iosApp/iosApp.xcworkspace` (always open the `.xcworkspace`, not `.xcodeproj`).
 
@@ -31,7 +34,7 @@ iOS app project: `iosApp/iosApp.xcworkspace` (always open the `.xcworkspace`, no
 
 - Source layout per module follows standard KMP: `src/commonMain/kotlin`, `src/androidMain/kotlin`, `src/iosMain/kotlin`, plus `commonTest` / `androidUnitTest` / `androidInstrumentedTest`.
 - Compose resources are generated under the package `coreapp.composeapp.generated.resources`.
-- `versionCode` is derived from git commit count; `versionName` requires a git tag (e.g. `git tag 1.0.0`) or falls back to `"unknown"`. Both are set lazily in `androidComponents.onVariants` so the git commands don't run during configuration.
+- `versionName` is the most recent tag reachable from HEAD (`git describe --tags --abbrev=0`), so a release branch versions from its own tag; `versionCode` is that tag packed into an int (`1.9.1.3` -> `10901003`, major below 100 and the rest below 1000). A build with no reachable tag fails loudly. Both are set lazily in `androidComponents.onVariants` so the git commands don't run during configuration.
 - DI is Koin (`koin-core`, `koin-compose`, `koin-compose-viewmodel`); navigation uses `androidx.navigation.compose`; logging uses Kermit; HTTP is Ktor (OkHttp on Android, Darwin on iOS).
 - Some dependencies are internally developed and published. You can still ask for the source code of these dependencies to be included in the session if you need more context but don't try looking for it in the filesystem.
 

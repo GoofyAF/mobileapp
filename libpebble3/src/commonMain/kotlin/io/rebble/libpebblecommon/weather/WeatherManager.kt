@@ -16,6 +16,8 @@ class WeatherManager(
     private val libPebbleCoroutineScope: LibPebbleCoroutineScope,
     private val appPrefsEntryDao: AppPrefsEntryDao,
 ): Weather {
+    override val currentWeather = weatherAppEntryDao.getAllFlow()
+
     override fun updateWeatherData(weatherData: List<WeatherLocationData>) {
         libPebbleCoroutineScope.launch {
             val existing = weatherAppEntryDao.getAll()
@@ -56,6 +58,7 @@ fun WeatherLocationData.WeatherLocationDataPopulated.toWeatherAppEntry() = Weath
     todayWindDirection = todayWindDirection,
     todayHourly = todayHourly,
     locationUtcOffsetMin = locationUtcOffsetMin,
+    tomorrowHourly = tomorrowHourly,
 )
 
 @Serializable
@@ -96,9 +99,9 @@ data class WeatherDailyForecast(
 )
 
 /**
- * One hour of today's v4 forecast (diurnal curve) carried to the watch. The UV index lands in
- * the v4 minor 4 hourly block and is the watch's only live UV reading — [WeatherDailyForecast]'s
- * `uvIndexX10` is the day's peak.
+ * One hour of a day's v4 forecast (diurnal curve) carried to the watch. The UV index is only
+ * carried for today (the v4 minor 4 block) and is the watch's only live UV reading —
+ * [WeatherDailyForecast]'s `uvIndexX10` is the day's peak.
  */
 @Serializable
 data class WeatherHourlyForecast(
@@ -138,5 +141,6 @@ sealed class WeatherLocationData {
         val todayHourly: List<WeatherHourlyForecast> = emptyList(),
         /** The city's own UTC offset in minutes including DST, so the watch can show its local times. */
         val locationUtcOffsetMin: Int? = null,
+        val tomorrowHourly: List<WeatherHourlyForecast> = emptyList(),
     ) : WeatherLocationData()
 }

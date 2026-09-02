@@ -30,10 +30,12 @@ open class TextOnlyRecordingOperation(
     private val mcpSessionFactory: McpSessionFactory,
     private val forcedTool: (suspend (sessionContext: SessionContext) -> ToolCallResult)?,
     private val sandboxGroupId: Long? = null,
-) : RecordingOperation, KoinComponent {
+) : TranscribingRecordingOperation, KoinComponent {
     companion object {
         private val logger = Logger.withTag("TextOnlyRecordingOperation")
     }
+
+    override var onTranscriptionPersisted: (suspend (transcription: String) -> Unit)? = null
 
     private val recordingProcessor: RecordingProcessor by inject()
     private val recordingEntryDao: RecordingEntryDao by inject()
@@ -57,19 +59,33 @@ open class TextOnlyRecordingOperation(
                 newId
             }
         }
+        onTranscriptionPersisted?.invoke(text)
         coroutineScope {
             val mcpSession = mcpSessionFactory.createForSandboxGroup(
                 sandboxGroupId ?: mcpSandboxRepository.getDefaultGroupId(),
                 this
             )
-            recordingProcessor.processText(
-                recordingId = recordingId,
-                mcpSession = mcpSession,
-                recordingEntryId = entryId,
-                agent = chatAgent,
-                forcedTool = forcedTool?.let { { _, sessionContext -> it(sessionContext) } },
-                text = text
-            )
+            try {
+                recordingProcessor.processText(
+                    recordingId = recordingId,
+                    mcpSession = mcpSession,
+                    recordingEntryId = entryId,
+                    agent = chatAgent,
+                    forcedTool = forcedTool?.let { { _, sessionContext -> it(sessionContext) } },
+                    text = text
+                )
+                recordingEntryDao.updateRecordingEntryStatus(
+                    entryId,
+                    status = RecordingEntryStatus.completed,
+                )
+            } catch (e: Exception) {
+                recordingEntryDao.updateRecordingEntryStatus(
+                    entryId,
+                    status = RecordingEntryStatus.agent_error,
+                    error = e.message,
+                )
+                throw e
+            }
         }
     }
 }

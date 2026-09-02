@@ -15,27 +15,20 @@ val properties = Properties().apply {
 }
 val localReleaseBuild = properties["LOCAL_RELEASE_BUILD"]?.toString()?.toBooleanStrictOrNull() ?: false
 
-// Hoisted out of the lambda below, which must not capture the project.
-val providerFactory = providers
-
-// Number of commits in the git history, so it always increases on main.
-val gitVersionCode = providers.exec {
-    isIgnoreExitValue = true
-    commandLine("git", "rev-list", "--count", "HEAD")
-}.standardOutput.asText.map {
-    it.trim().toIntOrNull() ?: throw GradleException("Error reading current commit count")
-}
-
-// Newest tag anywhere in the repo, including on branches HEAD doesn't descend from.
+// Most recent tag reachable from HEAD, so a release branch versions from its own tag.
 val gitVersionName = providers.exec {
     isIgnoreExitValue = true
-    commandLine("git", "rev-list", "--tags", "--max-count=1")
-}.standardOutput.asText.flatMap { rev ->
-    providerFactory.exec {
-        isIgnoreExitValue = true
-        commandLine("git", "describe", "--tags", rev.trim().ifEmpty { "HEAD" })
-    }.standardOutput.asText
-}.map { it.trim().ifEmpty { "unknown" } }
+    commandLine("git", "describe", "--tags", "--abbrev=0", "HEAD")
+}.standardOutput.asText.map { it.trim().ifEmpty { "unknown" } }
+
+// Tag as an increasing int: 1.9.1.3 -> 10901003. Major must stay below 100, the rest below 1000.
+val gitVersionCode = gitVersionName.map { name ->
+    val parts = name.split('.').map { it.toIntOrNull() ?: -1 }
+    if (parts.size > 4 || parts.first() !in 0..99 || parts.any { it !in 0..999 }) {
+        throw GradleException("Cannot derive versionCode from tag '$name'")
+    }
+    listOf(10_000_000, 100_000, 1_000, 1).zip(parts) { scale, part -> scale * part }.sum()
+}
 
 android {
     namespace = "coredevices.coreapp"
@@ -132,3 +125,67 @@ androidComponents {
         }
     }
 }
+
+/**
+ * Builds a plugin API demo watchapp into this app's assets, and into the folder the iOS app
+ * bundles from — the two hosts that ship watchapps — so a developer only has to reinstall the
+ * phone app to get a fresh copy onto the watch.
+ *
+ * Needs the Pebble SDK (`pebble` on PATH). Without it the build carries on and the app simply
+ * ships no bundled watchapp — see BundledPluginLoader.
+ */
+fun registerTestAppBuild(name: String) =
+    tasks.register<Exec>("build${name.replaceFirstChar { it.uppercase() }}Pbw") {
+        val appDir = file("../test-apps/$name")
+        val pbw = File(appDir, "build/$name.pbw")
+        val androidAsset = file("src/main/assets/bundled-apps/$name.pbw")
+        val iosResource = file("../iosApp/bundled-apps/$name.pbw")
+        inputs.dir(File(appDir, "src")).withPropertyName("source")
+        inputs.file(File(appDir, "package.json")).withPropertyName("manifest")
+        outputs.files(androidAsset, iosResource).withPropertyName("bundled")
+
+        val pebble = System.getenv("PATH").orEmpty().split(File.pathSeparator)
+            .map { File(it, "pebble") }
+            .firstOrNull { it.canExecute() }
+        onlyIf("the Pebble SDK is installed") { pebble != null }
+
+        workingDir = appDir
+        executable = pebble?.absolutePath ?: "pebble"
+        args("build")
+        doLast {
+            listOf(androidAsset, iosResource).forEach { destination ->
+                destination.parentFile.mkdirs()
+                pbw.copyTo(destination, overwrite = true)
+            }
+        }
+    }
+
+val testApps = listOf("plugin-test", "weather-face")
+val testAppPbws = testApps.map { registerTestAppBuild(it) }
+
+// waf self-extracts its library to ~/.waf3-* on first run; two concurrent waf processes
+// racing that unpack die with "cannot import name 'Scripting' from 'waflib'". The builds
+// take ~1s each, so just serialize them.
+testAppPbws.zipWithNext().forEach { (first, second) -> second.configure { mustRunAfter(first) } }
+
+// Everything a demo watchapp generates lands outside this project's build dir, so `clean` has
+// to be told about it: the waf build tree in the app itself, and the pbws it installed.
+tasks.named<Delete>("clean") {
+    testApps.forEach {
+        delete(
+            file("../test-apps/$it/build"),
+            file("src/main/assets/bundled-apps/$it.pbw"),
+            file("../iosApp/bundled-apps/$it.pbw"),
+        )
+    }
+}
+
+tasks.register("buildTestAppPbws") {
+    description = "Builds every plugin API demo watchapp into the host apps' resources."
+    dependsOn(testAppPbws)
+}
+
+// The pbws ship in this app's assets, so anything reading that dir — asset merging, and lint's
+// model of the source sets — has to run after they land.
+tasks.matching { it.name.contains("Assets") || it.name.contains("lint", ignoreCase = true) }
+    .configureEach { dependsOn(testAppPbws) }

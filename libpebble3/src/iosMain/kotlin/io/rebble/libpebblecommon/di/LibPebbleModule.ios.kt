@@ -23,11 +23,16 @@ import io.rebble.libpebblecommon.io.rebble.libpebblecommon.contacts.IosSystemCon
 import io.rebble.libpebblecommon.io.rebble.libpebblecommon.music.IosSystemMusicControl
 import io.rebble.libpebblecommon.io.rebble.libpebblecommon.util.IosSystemGeolocation
 import io.rebble.libpebblecommon.io.rebble.libpebblecommon.util.OtherPebbleIosApps
+import io.rebble.libpebblecommon.imaging.NoNotificationImages
+import io.rebble.libpebblecommon.imaging.NotificationImageProvider
 import io.rebble.libpebblecommon.music.SystemMusicControl
 import io.rebble.libpebblecommon.notification.NotificationAppsSync
 import io.rebble.libpebblecommon.notification.NotificationListenerConnection
 import io.rebble.libpebblecommon.packets.PhoneAppVersion
 import io.rebble.libpebblecommon.packets.ProtocolCapsFlag
+import io.rebble.libpebblecommon.plugin.PhoneBatteryMonitor
+import io.rebble.libpebblecommon.plugin.PhoneNetworkMonitor
+import io.rebble.libpebblecommon.plugin.PlatformPlugins
 import io.rebble.libpebblecommon.util.SystemGeolocation
 import org.koin.core.module.Module
 import org.koin.core.module.dsl.singleOf
@@ -55,10 +60,15 @@ actual val platformModule: Module = module {
     singleOf(::IosCalendarActionHandler) bind PlatformCalendarActionHandler::class
     singleOf(::IosSystemCallLog) bind SystemCallLog::class
     singleOf(::IosSystemMusicControl) bind SystemMusicControl::class
+    singleOf(::NoNotificationImages) bind NotificationImageProvider::class
     singleOf(::IosSystemGeolocation) bind SystemGeolocation::class
     singleOf(::OtherPebbleIosApps) bind OtherPebbleApps::class
     singleOf(::IosSystemContacts) bind SystemContacts::class
     singleOf(::IosLegacyPhoneReceiver) bind LegacyPhoneReceiver::class
+    singleOf(::PhoneBatteryMonitor)
+    singleOf(::PhoneNetworkMonitor)
+    // No media session equivalent on iOS.
+    single { PlatformPlugins(emptySet()) }
     single { PlatformConfig(syncNotificationApps = true) }
     single { BlePlatformConfig(
         pinAddress = false,

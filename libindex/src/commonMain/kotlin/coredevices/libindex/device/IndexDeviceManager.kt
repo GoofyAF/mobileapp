@@ -45,16 +45,25 @@ class IndexDeviceManager(
         private val logger = Logger.withTag("IndexDeviceRepository")
     }
 
-    fun update(indexDevice: IndexDevice) {
+    /**
+     * Moves the ring's scanned entry to [pairingState].
+     */
+    fun setPairingState(identifier: IndexIdentifier, name: String, pairingState: IndexPairingState) {
         _rings.update { prev ->
-            val existingIdx = prev.indexOfFirst { indexDevice.identifier.asString.equals(it.identifier.asString, ignoreCase = true) }
-            if (existingIdx != -1) {
-                prev
-                    .toMutableList()
-                    .apply { set(existingIdx, indexDevice) }
-            } else {
-                prev + indexDevice
-            }
+            val existing = prev.getByIDNamePair(identifier, name) as? PairableIndexDevice
+                ?: return@update prev
+            val updated = deviceFactory.create(
+                identifier = existing.identifier,
+                name = existing.name,
+                scanResult = IndexScanResult(
+                    identifier = existing.identifier,
+                    name = existing.name,
+                    rssi = existing.rssi,
+                    currentImage = existing.currentImage,
+                ),
+                pairingState = pairingState,
+            )
+            prev.map { if (it === existing) updated else it }
         }
     }
 
@@ -76,7 +85,10 @@ class IndexDeviceManager(
                                 name = existing.name,
                                 isPaired = true,
                                 satellite = satellite,
-                                satelliteState = satellite.state.value!!,
+                                satelliteState = satellite.state.value ?: run {
+                                    logger.w { "State is stale for ring update, ignoring" }
+                                    return@update prev
+                                },
                                 isUpdating = isUpdating
                                     ?: (existing is InterviewedIndexDevice && (existing as InterviewedIndexDevice).updating)
                             )
@@ -158,22 +170,12 @@ class IndexDeviceManager(
                 }
                 if (new != null) {
                     logger.d { "Adding new to list" }
-                    _rings.update { prev ->
-                        // replace if exists and is a DiscoveredIndexDevice, otherwise add
-                        val existing = prev.indexOfFirst { it.identifier.asString.equals(new, ignoreCase = true) }
-                        val known = deviceFactory.create(
-                            identifier = IndexIdentifier(new),
-                            name = prefs.ringPairedName.value ?: "Index 01",
-                            isPaired = true,
-                        )
-                        if (existing != -1 && prev[existing] is DiscoveredIndexDevice) {
-                            prev
-                                .toMutableList()
-                                .apply { set(existing, known) }
-                        } else {
-                            prev + known
-                        }
-                    }
+                    val known = deviceFactory.create(
+                        identifier = IndexIdentifier(new),
+                        name = prefs.ringPairedName.value ?: "Index 01",
+                        isPaired = true,
+                    )
+                    _rings.update { prev -> prev.upsertRing(known) }
                 }
             }.launchIn(scope)
         satelliteManager.lastRing
@@ -204,52 +206,76 @@ class IndexDeviceManager(
 
     fun addScanResult(result: IndexScanResult) {
         _rings.update { prev ->
-            // Match by identifier, or by name: a ring entering failsafe advertises a
-            // slightly different address/id but the same name, so overwrite the existing
-            // discovered entry rather than showing a duplicate.
-            val existingIdx = prev.indexOfFirst {
-                it.identifier.asString.equals(result.identifier.asString, ignoreCase = true) ||
-                    (it is DiscoveredIndexDevice && it.name == result.name)
-            }
-            val existing = existingIdx.takeIf { it != -1 }?.let { prev[it] }
-            if (existing is DiscoveredIndexDevice) {
-                prev
-                    .toMutableList()
-                    .apply {
-                        set(
-                            existingIdx,
-                            deviceFactory.create(
-                                identifier = result.identifier,
-                                name = result.name,
-                                scanResult = result,
-                                pairingState = existing.pairingState,
-                            )
-                        )
-                    }
-            } else if (existing == null) {
-                prev + deviceFactory.create(
+            val existing = prev.getByIDNamePair(result.identifier, result.name)
+            // A paired ring keeps its entry; a scan result must not turn it back into a
+            // scanned one, nor add a second row for it.
+            if (existing != null && !existing.isScanned) return@update prev
+            prev.upsertRing(
+                deviceFactory.create(
                     identifier = result.identifier,
                     name = result.name,
                     scanResult = result,
+                    pairingState = existing.inheritedPairingState(),
                 )
-            } else { // existing is a KnownIndexDevice, ignore scan result
-                prev
-            }
+            )
         }
     }
 
     fun clearScanResults() {
         _rings.update { prev ->
-            prev.filterNot { it is DiscoveredIndexDevice }
+            prev.filterNot { it.isScanned }
         }
     }
 }
 
+/** Built from a scan result, so superseded by the next one and dropped when the scan ends. */
+internal val IndexDevice.isScanned: Boolean
+    get() = this is DiscoveredIndexDevice
+
+/**
+ * A ring entering failsafe advertises a slightly different address but keeps its name, so a
+ * scanned entry also matches on name.
+ */
+internal fun IndexDevice.isSameRing(identifier: IndexIdentifier, name: String): Boolean =
+    this.identifier.asString.equals(identifier.asString, ignoreCase = true) ||
+        (isScanned && this.name == name)
+
+/**
+ * Get entry by identifier & name.
+ * Required because failsafe can have a different identifier.
+ */
+internal fun List<IndexDevice>.getByIDNamePair(identifier: IndexIdentifier, name: String): IndexDevice? =
+    firstOrNull { it.isSameRing(identifier, name) }
+
+/**
+ * Get pairing state to be inherited for updating device entry type, resets if e.g. Failsafe occurs
+ */
+internal fun IndexDevice?.inheritedPairingState(): IndexPairingState =
+    (this as? PairableIndexDevice)?.pairingState ?: IndexPairingState.NotPaired
+
+/**
+ * Inserts [device] in place of every entry for the same ring. The devices screen keys its rows by
+ * identifier, so two entries for one ring crash it.
+ */
+internal fun List<IndexDevice>.upsertRing(device: IndexDevice): List<IndexDevice> {
+    val at = indexOfFirst { it.isSameRing(device.identifier, device.name) }
+    if (at == -1) return this + device
+    return mapIndexedNotNull { index, existing ->
+        when {
+            index == at -> device
+            existing.isSameRing(device.identifier, device.name) -> null
+            else -> existing
+        }
+    }
+}
+
+@Suppress("ArrayInDataClass")
 data class IndexScanResult(
     val identifier: IndexIdentifier,
     val name: String,
     val rssi: Int,
-    val isFailsafe: Boolean
+    val currentImage: IndexImage,
+    val manufacturerData: ByteArray? = null,
 )
 
 internal data class StoredPairing(val id: String?, val name: String?)

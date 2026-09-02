@@ -710,7 +710,7 @@ fun LockerAppScreen(topBarParams: TopBarParams, uuid: Uuid?, navBarNav: NavBarNa
                             value = "$version$sideloadedText$updatedDateText"
                         )
                     }
-                    entry.sourceLink?.let { sourceLink ->
+                    (viewModel.selectedStoreEntry?.sourceLink ?: entry.sourceLink)?.let { sourceLink ->
                         PropertyRow(
                             name = "SOURCE CODE",
                             nameModifier = propertyNameModifier,
@@ -1003,10 +1003,10 @@ suspend fun CommonApp.showSettings(
                     return
                 }
                 logger.d { "Got app settings URL" }
-                WatchappSettingsUrlCache.put(watch.identifier.asString, url)
+                WatchappSettingsUrlCache.put(uuid.toString(), url)
                 navBarNav.navigateTo(
                     PebbleRoutes.WatchappSettingsRoute(
-                        watchIdentifier = watch.identifier.asString,
+                        uuid = uuid.toString(),
                         title = title,
                     )
                 )
