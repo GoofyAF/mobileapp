@@ -58,7 +58,7 @@ jobs:
 
       - name: Configure Firebase and signing
         run: |
-          mv androidApp/src/google-services-dummy.json androidApp/src/google-services.json
+          cp androidApp/src/google-services-dummy.json androidApp/src/google-services.json
           echo "LOCAL_RELEASE_BUILD=true" > local.properties
 
       - name: Build release APK
@@ -71,7 +71,12 @@ jobs:
       - name: Locate APK
         id: apk
         run: |
-          APK=$(ls androidApp/build/outputs/apk/release/*.apk | head -1)
+          APK=$(ls androidApp/build/outputs/apk/release/*.apk 2>/dev/null | head -1)
+          if [ -z "$APK" ]; then
+            echo "ERROR: No APK found in androidApp/build/outputs/apk/release/"
+            ls -la androidApp/build/outputs/apk/release/ || true
+            exit 1
+          fi
           echo "path=$APK" >> "$GITHUB_OUTPUT"
           echo "name=$(basename "$APK")" >> "$GITHUB_OUTPUT"
 
