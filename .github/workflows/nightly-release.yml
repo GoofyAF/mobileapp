@@ -55,14 +55,10 @@ jobs:
         run: |
           cp androidApp/src/google-services-dummy.json androidApp/src/google-services.json
           echo "LOCAL_RELEASE_BUILD=true" > local.properties
-          ls -la androidApp/src/google-services.json
 
-      - name: Gradle version
-        run: ./gradlew --version
-
-      - name: Build release APK
+      - name: Build debug APK (matches upstream CI)
         run: |
-          ./gradlew :androidApp:assembleRelease -x :androidApp:uploadCrashlyticsMappingFileRelease --stacktrace --info
+          ./gradlew :androidApp:assembleDebug
         env:
           GITHUB_ACTOR: ${{ secrets.READ_PACKAGES_ACTOR }}
           GITHUB_TOKEN: ${{ secrets.READ_PACKAGES_TOKEN }}
@@ -70,10 +66,10 @@ jobs:
       - name: Locate APK
         id: apk
         run: |
-          APK=$(ls androidApp/build/outputs/apk/release/*.apk 2>/dev/null | head -1)
+          APK=$(ls androidApp/build/outputs/apk/debug/*.apk 2>/dev/null | head -1)
           if [ -z "$APK" ]; then
-            echo "ERROR: No APK found in androidApp/build/outputs/apk/release/"
-            ls -la androidApp/build/outputs/apk/release/ || true
+            echo "ERROR: No APK found in androidApp/build/outputs/apk/debug/"
+            ls -la androidApp/build/outputs/apk/debug/ || true
             exit 1
           fi
           echo "path=$APK" >> "$GITHUB_OUTPUT"
