@@ -51,14 +51,13 @@ jobs:
           key: android-deps-${{ runner.os }}-${{ hashFiles('gradle/**', 'gradlew*', 'gradle.properties', '*.gradle*') }}
           restore-keys: android-deps-${{ runner.os }}-
 
-      - name: Configure Firebase and signing
+      - name: Configure Firebase (match upstream)
         run: |
           cp androidApp/src/google-services-dummy.json androidApp/src/google-services.json
-          echo "LOCAL_RELEASE_BUILD=true" > local.properties
 
-      - name: Build debug APK (matches upstream CI)
+      - name: Build debug APK + test + lint (match upstream CI)
         run: |
-          ./gradlew :androidApp:assembleDebug
+          ./gradlew :androidApp:assembleDebug testDebugUnitTest testAndroidHostTest jvmTest lintDebug
         env:
           GITHUB_ACTOR: ${{ secrets.READ_PACKAGES_ACTOR }}
           GITHUB_TOKEN: ${{ secrets.READ_PACKAGES_TOKEN }}
