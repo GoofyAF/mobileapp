@@ -63,7 +63,7 @@ jobs:
 
       - name: Build release APK
         run: |
-          ./gradlew :androidApp:assembleRelease
+          ./gradlew :androidApp:assembleRelease -x :androidApp:uploadCrashlyticsMappingFileRelease
         env:
           GITHUB_ACTOR: ${{ secrets.READ_PACKAGES_ACTOR }}
           GITHUB_TOKEN: ${{ secrets.READ_PACKAGES_TOKEN }}
