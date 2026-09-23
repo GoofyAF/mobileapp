@@ -40,7 +40,6 @@ jobs:
             git checkout HEAD^ -- .github/workflows
             git add -A .github/workflows
             git commit --amend --no-edit --no-verify || true
-            # Don't push - it triggers a new run which cancels this one via concurrency
           fi
           echo "merge_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
@@ -56,10 +55,14 @@ jobs:
         run: |
           cp androidApp/src/google-services-dummy.json androidApp/src/google-services.json
           echo "LOCAL_RELEASE_BUILD=true" > local.properties
+          ls -la androidApp/src/google-services.json
+
+      - name: Gradle version
+        run: ./gradlew --version
 
       - name: Build release APK
         run: |
-          ./gradlew :androidApp:assembleRelease -x :androidApp:uploadCrashlyticsMappingFileRelease
+          ./gradlew :androidApp:assembleRelease -x :androidApp:uploadCrashlyticsMappingFileRelease --stacktrace --info
         env:
           GITHUB_ACTOR: ${{ secrets.READ_PACKAGES_ACTOR }}
           GITHUB_TOKEN: ${{ secrets.READ_PACKAGES_TOKEN }}
